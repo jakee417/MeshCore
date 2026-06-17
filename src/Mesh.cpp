@@ -1,6 +1,10 @@
 #include "Mesh.h"
 //#include <Arduino.h>
 
+#if defined(RP2040_PLATFORM)
+  #include <helpers/rp2040/RP2040OTA.h>
+#endif
+
 namespace mesh {
 
 void Mesh::begin() {
@@ -9,6 +13,10 @@ void Mesh::begin() {
 
 void Mesh::loop() {
   Dispatcher::loop();
+
+#if defined(RP2040_PLATFORM)
+  rp2040ota::loop();
+#endif
 }
 
 bool Mesh::allowPacketForward(const mesh::Packet* packet) { 

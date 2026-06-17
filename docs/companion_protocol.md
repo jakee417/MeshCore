@@ -257,6 +257,41 @@ Bytes 34-49: Secret (16 bytes)
 
 ---
 
+### 4a. Start OTA Update
+
+**Purpose**: Start the device OTA web updater remotely over the companion protocol.
+
+**Command Format**:
+```
+Byte 0: 0x2C
+```
+
+**Example** (hex):
+```
+2C
+```
+
+**Response**: `PACKET_WIFI_OTA_STATUS` (0x1D)
+
+**Response Format**:
+```
+Byte 0: 0x1D
+Byte 1: Flags bitmask
+    Bit 0: OTA server running
+    Bit 1: Station IP present
+    Bit 2: SoftAP IP present
+Bytes 2-5: Station IPv4 address
+Bytes 6-9: SoftAP IPv4 address
+Bytes 10+: Null-terminated status text
+```
+
+**Notes**:
+- Current firmware support is for RP2040 WiFi companion builds.
+- The status text typically contains `Started: http://.../update` or `Already started: http://.../update`.
+- If the firmware does not support OTA start over the protocol, it returns `PACKET_DISABLED` (0x0F).
+
+---
+
 ### 5. Send Channel Message
 
 **Purpose**: Send a text message to a channel.
@@ -635,6 +670,7 @@ Byte values are authoritative; names are aliases. When reading firmware source, 
 | 0x10  | PACKET_CONTACT_MSG_RECV_V3 | Contact message (V3 with SNR) |
 | 0x11  | PACKET_CHANNEL_MSG_RECV_V3 | Channel message (V3 with SNR) |
 | 0x12  | PACKET_CHANNEL_INFO        | Channel information           |
+| 0x1D  | PACKET_WIFI_OTA_STATUS     | OTA server status and URLs    |
 | 0x1B  | PACKET_CHANNEL_DATA_RECV   | Channel data datagram         |
 | 0x80  | PACKET_ADVERTISEMENT       | Advertisement packet          |
 | 0x82  | PACKET_ACK                 | Acknowledgment                |
@@ -680,6 +716,15 @@ Bytes 20-59: Model (40 bytes, UTF-8, null-padded)
 Bytes 60-79: Version (20 bytes, UTF-8, null-padded)
 Byte 80: Client repeat enabled/preferred (firmware v9+)
 Byte 81: Path hash mode (firmware v10+)
+```
+
+**PACKET_WIFI_OTA_STATUS** (0x1D):
+```
+Byte 0: 0x1D
+Byte 1: Flags bitmask
+Bytes 2-5: Station IPv4 address
+Bytes 6-9: SoftAP IPv4 address
+Bytes 10+: Null-terminated status string
 ```
 
 **Parsing Pseudocode**:

@@ -14,8 +14,18 @@ SensorManager sensors;
 
 bool radio_init() {
   rtc_clock.begin(Wire);
-  
-  return radio.std_init(&SPI1);
+
+  SPI1.setSCK(P_LORA_SCLK);
+  SPI1.setTX(P_LORA_MOSI);
+  SPI1.setRX(P_LORA_MISO);
+
+  pinMode(P_LORA_NSS, OUTPUT);
+  digitalWrite(P_LORA_NSS, HIGH);
+
+  SPI1.begin(false);
+
+  // Passing NULL skips SPI re-init in RadioLib wrapper.
+  return radio.std_init(NULL);
 }
 
 mesh::LocalIdentity radio_new_identity() {

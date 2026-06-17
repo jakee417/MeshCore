@@ -47,6 +47,7 @@
 #define CMD_GET_ADVERT_PATH           42
 #define CMD_GET_TUNING_PARAMS         43
 // NOTE: CMD range 44..49 parked, potentially for WiFi operations
+#define CMD_START_OTA                 44
 #define CMD_SEND_BINARY_REQ           50
 #define CMD_FACTORY_RESET             51
 #define CMD_SEND_PATH_DISCOVERY_REQ   52
@@ -97,6 +98,7 @@
 #define RESP_ALLOWED_REPEAT_FREQ      26
 #define RESP_CODE_CHANNEL_DATA_RECV   27
 #define RESP_CODE_DEFAULT_FLOOD_SCOPE 28
+#define RESP_CODE_WIFI_OTA_STATUS     29
 
 #define MAX_CHANNEL_DATA_LENGTH       (MAX_FRAME_SIZE - 9)
 
@@ -161,6 +163,46 @@ void MyMesh::writeDisabledFrame() {
   uint8_t buf[1];
   buf[0] = RESP_CODE_DISABLED;
   _serial->writeFrame(buf, 1);
+}
+
+void MyMesh::writeWifiOTAStatusFrame(const char* message) {
+  int i = 0;
+  out_frame[i++] = RESP_CODE_WIFI_OTA_STATUS;
+
+  uint8_t flags = 0;
+  uint8_t station_ip[4] = {0, 0, 0, 0};
+  uint8_t ap_ip[4] = {0, 0, 0, 0};
+
+#if defined(RP2040_PLATFORM) && defined(WIFI_SSID)
+  IPAddress station = WiFi.localIP();
+  IPAddress ap = WiFi.softAPIP();
+
+  for (int idx = 0; idx < 4; idx++) {
+    station_ip[idx] = station[idx];
+    ap_ip[idx] = ap[idx];
+  }
+
+  if (strncmp(message, "Started:", 8) == 0 || strncmp(message, "Already started:", 16) == 0) {
+    flags |= 0x01;
+  }
+  if (station_ip[0] || station_ip[1] || station_ip[2] || station_ip[3]) {
+    flags |= 0x02;
+  }
+  if (ap_ip[0] || ap_ip[1] || ap_ip[2] || ap_ip[3]) {
+    flags |= 0x04;
+  }
+#endif
+
+  out_frame[i++] = flags;
+  memcpy(&out_frame[i], station_ip, sizeof(station_ip));
+  i += sizeof(station_ip);
+  memcpy(&out_frame[i], ap_ip, sizeof(ap_ip));
+  i += sizeof(ap_ip);
+
+  StrHelper::strzcpy((char*)&out_frame[i], message, sizeof(out_frame) - i);
+  i += strlen((char*)&out_frame[i]) + 1;
+
+  _serial->writeFrame(out_frame, i);
 }
 
 void MyMesh::writeContactRespFrame(uint8_t code, const ContactInfo &contact) {
@@ -653,6 +695,10 @@ uint8_t MyMesh::onContactRequest(const ContactInfo &contact, uint32_t sender_tim
       telemetry.addVoltage(TELEM_CHANNEL_SELF, (float)board.getBattMilliVolts() / 1000.0f);
       // query other sensors -- target specific
       sensors.querySensors(permissions, telemetry);
+      float temperature = board.getMCUTemperature();
+      if (!isnan(temperature)) {
+        telemetry.addTemperature(TELEM_CHANNEL_SELF, temperature);
+      }
 
       memcpy(reply, &sender_timestamp,
              4); // reflect sender_timestamp back in response packet (kind of like a 'tag')
@@ -1426,6 +1472,17 @@ void MyMesh::handleCmdFrame(size_t len) {
     memcpy(&out_frame[i], &rx, 4); i += 4;
     memcpy(&out_frame[i], &af, 4); i += 4;
     _serial->writeFrame(out_frame, i);
+  } else if (cmd_frame[0] == CMD_START_OTA) {
+#if defined(RP2040_PLATFORM) && defined(WIFI_SSID)
+    char reply[160] = {0};
+    if (board.startOTAUpdate(_prefs.node_name, reply)) {
+      writeWifiOTAStatusFrame(reply);
+    } else {
+      writeErrFrame(ERR_CODE_BAD_STATE);
+    }
+#else
+    writeDisabledFrame();
+#endif
   } else if (cmd_frame[0] == CMD_SET_OTHER_PARAMS) {
     _prefs.manual_add_contacts = cmd_frame[1];
     if (len >= 3) {
@@ -1638,6 +1695,10 @@ void MyMesh::handleCmdFrame(size_t len) {
     telemetry.addVoltage(TELEM_CHANNEL_SELF, (float)board.getBattMilliVolts() / 1000.0f);
     // query other sensors -- target specific
     sensors.querySensors(0xFF, telemetry);
+    float temperature = board.getMCUTemperature();
+    if (!isnan(temperature)) {
+      telemetry.addTemperature(TELEM_CHANNEL_SELF, temperature);
+    }
 
     int i = 0;
     out_frame[i++] = PUSH_CODE_TELEMETRY_RESPONSE;

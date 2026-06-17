@@ -38,6 +38,16 @@ public:
     return (ADC_MULTIPLIER * raw) / 4096;
   }
 
+  float getMCUTemperature() override {
+    float raw = 0.0f;
+
+    for (int i = 0; i < 4; i++) {
+      raw += analogReadTemp();
+    }
+
+    return raw / 4.0f;
+  }
+
   const char* getManufacturerName() const override {
     return "Pico W";
   }

@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include "PicoWBoard.h"
+#include <helpers/rp2040/RP2040OTA.h>
 
 //#include <bluefruit.h>
 #include <Wire.h>
@@ -38,5 +39,5 @@ void PicoWBoard::begin() {
 }
 
 bool PicoWBoard::startOTAUpdate(const char* id, char reply[]) {
-  return false;
+  return mesh::rp2040ota::start(*this, id, reply);
 }

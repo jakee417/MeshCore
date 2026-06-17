@@ -5,7 +5,7 @@
 #include "AbstractUITask.h"
 
 /*------------ Frame Protocol --------------*/
-#define FIRMWARE_VER_CODE 13
+#define FIRMWARE_VER_CODE 14
 
 #ifndef FIRMWARE_BUILD_DATE
 #define FIRMWARE_BUILD_DATE "6 Jun 2026"
@@ -19,6 +19,9 @@
 #include <InternalFileSystem.h>
 #elif defined(RP2040_PLATFORM)
 #include <LittleFS.h>
+  #if defined(WIFI_SSID)
+    #include <WiFi.h>
+  #endif
 #elif defined(ESP32)
 #include <SPIFFS.h>
 #endif
@@ -184,6 +187,7 @@ private:
   void writeOKFrame();
   void writeErrFrame(uint8_t err_code);
   void writeDisabledFrame();
+  void writeWifiOTAStatusFrame(const char* message);
   void writeContactRespFrame(uint8_t code, const ContactInfo &contact);
   void updateContactFromFrame(ContactInfo &contact, uint32_t& last_mod, const uint8_t *frame, int len);
   void addToOfflineQueue(const uint8_t frame[], int len);

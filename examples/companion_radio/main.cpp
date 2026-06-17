@@ -2,6 +2,10 @@
 #include <Mesh.h>
 #include "MyMesh.h"
 
+#if defined(REQUIRE_WIFI_CREDS) && (!defined(WIFI_SSID) || !defined(WIFI_PWD))
+  #error "Wi-Fi build requires WIFI_SSID and WIFI_PWD in platformio.local.ini"
+#endif
+
 // Believe it or not, this std C function is busted on some platforms!
 static uint32_t _atoi(const char* sp) {
   uint32_t n = 0;
@@ -28,6 +32,7 @@ static uint32_t _atoi(const char* sp) {
   #endif
 #elif defined(RP2040_PLATFORM)
   #include <LittleFS.h>
+  #include <helpers/rp2040/RP2040OTA.h>
   DataStore store(LittleFS, rtc_clock);
 #elif defined(ESP32)
   #include <SPIFFS.h>
@@ -53,16 +58,17 @@ static uint32_t _atoi(const char* sp) {
     ArduinoSerialInterface serial_interface;
   #endif
 #elif defined(RP2040_PLATFORM)
-  //#ifdef WIFI_SSID
-  //  #include <helpers/rp2040/SerialWifiInterface.h>
-  //  SerialWifiInterface serial_interface;
-  //  #ifndef TCP_PORT
-  //    #define TCP_PORT 5000
-  //  #endif
+  #ifdef WIFI_SSID
+    #include <helpers/rp2040/SerialWifiInterface.h>
+    #include <WiFi.h>
+    SerialWifiInterface serial_interface;
+    #ifndef TCP_PORT
+      #define TCP_PORT 5000
+    #endif
   // #elif defined(BLE_PIN_CODE)
   //   #include <helpers/rp2040/SerialBLEInterface.h>
   //   SerialBLEInterface serial_interface;
-  #if defined(SERIAL_RX)
+  #elif defined(SERIAL_RX)
     #include <helpers/ArduinoSerialInterface.h>
     ArduinoSerialInterface serial_interface;
     HardwareSerial companion_serial(1);
@@ -109,6 +115,44 @@ void halt() {
 #if defined(ESP32) && defined(WIFI_SSID)
   bool wifi_needs_reconnect = false;
   unsigned long last_wifi_reconnect_attempt = 0;
+#elif defined(RP2040_PLATFORM) && defined(WIFI_SSID)
+  uint8_t last_wifi_status = WL_IDLE_STATUS;
+  unsigned long last_wifi_reconnect_attempt = 0;
+
+  static const char* getDefaultWifiHostnamePrefix() {
+    #ifdef BOARD_NAME
+    if (strcmp(BOARD_NAME, "rpipico2w") == 0) {
+      return "Pico2W";
+    }
+    #endif
+
+    return "PicoW";
+  }
+
+  static String setWifiHostname() {
+    #ifdef WIFI_HOSTNAME
+    WiFi.setHostname(WIFI_HOSTNAME);
+    WIFI_DEBUG_PRINTLN("WiFi hostname set to %s", WIFI_HOSTNAME);
+    return String(WIFI_HOSTNAME);
+    #else
+    String mac = WiFi.macAddress();
+    mac.replace(":", "");
+    const char* hostname_prefix = getDefaultWifiHostnamePrefix();
+
+    const int suffix_len = 6;
+    if (mac.length() < suffix_len) {
+      WIFI_DEBUG_PRINTLN("WiFi MAC address too short for hostname suffix: %s", mac.c_str());
+      WiFi.setHostname(hostname_prefix);
+      WIFI_DEBUG_PRINTLN("WiFi hostname set to %s", hostname_prefix);
+      return String(hostname_prefix);
+    }
+
+    const String hostname = String(hostname_prefix) + mac.substring(mac.length() - suffix_len);
+    WiFi.setHostname(hostname.c_str());
+    WIFI_DEBUG_PRINTLN("WiFi hostname set to %s", hostname.c_str());
+    return hostname;
+    #endif
+  }
 #endif
 
 void setup() {
@@ -173,14 +217,17 @@ void setup() {
     #endif
   );
 
-  //#ifdef WIFI_SSID
-  //  WiFi.begin(WIFI_SSID, WIFI_PWD);
-  //  serial_interface.begin(TCP_PORT);
+  #ifdef WIFI_SSID
+  const String wifi_hostname = setWifiHostname();
+  WIFI_DEBUG_PRINTLN("Connecting to WiFi SSID %s", WIFI_SSID);
+  WiFi.begin(WIFI_SSID, WIFI_PWD);
+  mesh::rp2040ota::begin(board, the_mesh.getNodePrefs()->node_name, wifi_hostname.c_str());
+  serial_interface.begin(TCP_PORT);
   // #elif defined(BLE_PIN_CODE)
   //   char dev_name[32+16];
   //   sprintf(dev_name, "%s%s", BLE_NAME_PREFIX, the_mesh.getNodeName());
   //   serial_interface.begin(dev_name, the_mesh.getBLEPin());
-  #if defined(SERIAL_RX)
+  #elif defined(SERIAL_RX)
     companion_serial.setPins(SERIAL_RX, SERIAL_TX);
     companion_serial.begin(115200);
     serial_interface.begin(companion_serial);
@@ -262,6 +309,23 @@ void loop() {
     WIFI_DEBUG_PRINTLN("Attempting manual WiFi reconnect...");
     WiFi.disconnect();
     WiFi.reconnect();
+    last_wifi_reconnect_attempt = millis();
+  }
+#elif defined(RP2040_PLATFORM) && defined(WIFI_SSID)
+  uint8_t wifi_status = WiFi.status();
+  if (wifi_status != last_wifi_status) {
+    if (wifi_status == WL_CONNECTED) {
+      WIFI_DEBUG_PRINTLN("WiFi connected successfully! IP=%s", WiFi.localIP().toString().c_str());
+    } else {
+      WIFI_DEBUG_PRINTLN("WiFi status changed to %u (reason=%u)", wifi_status, WiFi.reasonCode());
+    }
+    last_wifi_status = wifi_status;
+  }
+
+  if (wifi_status == WL_DISCONNECTED && (millis() - last_wifi_reconnect_attempt > 10000)) {
+    WIFI_DEBUG_PRINTLN("Attempting manual WiFi reconnect...");
+    WiFi.disconnect();
+    WiFi.begin(WIFI_SSID, WIFI_PWD);
     last_wifi_reconnect_attempt = millis();
   }
 #endif
