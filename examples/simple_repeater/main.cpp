@@ -3,6 +3,76 @@
 
 #include "MyMesh.h"
 
+#if defined(REQUIRE_WIFI_CREDS) && (!defined(WIFI_SSID) || !defined(WIFI_PWD))
+  #error "Wi-Fi build requires WIFI_SSID and WIFI_PWD in platformio.local.ini"
+#endif
+
+#if defined(RP2040_PLATFORM)
+  #include <helpers/rp2040/RP2040OTA.h>
+#endif
+
+#if defined(RP2040_PLATFORM) && defined(WIFI_SSID)
+  #include <WiFi.h>
+
+  uint8_t last_wifi_status = WL_IDLE_STATUS;
+  unsigned long last_wifi_reconnect_attempt = 0;
+
+  static void formatPublicKey(char* dest, size_t dest_size, const uint8_t* public_key) {
+    if (dest_size < (PUB_KEY_SIZE * 2 + 1)) {
+      if (dest_size > 0) {
+        dest[0] = 0;
+      }
+      return;
+    }
+    mesh::Utils::toHex(dest, public_key, PUB_KEY_SIZE);
+  }
+
+  static void logWifiStatus(const char* prefix, uint8_t status) {
+    Serial.printf("WiFi: %s status=%u", prefix, status);
+    if (status == WL_CONNECTED) {
+      Serial.printf(" ip=%s", WiFi.localIP().toString().c_str());
+    } else {
+      Serial.printf(" reason=%u", WiFi.reasonCode());
+    }
+    Serial.println();
+  }
+
+  static const char* getDefaultWifiHostnamePrefix() {
+    #ifdef BOARD_NAME
+    if (strcmp(BOARD_NAME, "rpipico2w") == 0) {
+      return "Pico2W";
+    }
+    #endif
+
+    return "PicoW";
+  }
+
+  static String setWifiHostname() {
+    #ifdef WIFI_HOSTNAME
+    WiFi.setHostname(WIFI_HOSTNAME);
+    MESH_DEBUG_PRINTLN("WiFi hostname set to %s", WIFI_HOSTNAME);
+    return String(WIFI_HOSTNAME);
+    #else
+    String mac = WiFi.macAddress();
+    mac.replace(":", "");
+    const char* hostname_prefix = getDefaultWifiHostnamePrefix();
+
+    const int suffix_len = 6;
+    if (mac.length() < suffix_len) {
+      MESH_DEBUG_PRINTLN("WiFi MAC address too short for hostname suffix: %s", mac.c_str());
+      WiFi.setHostname(hostname_prefix);
+      MESH_DEBUG_PRINTLN("WiFi hostname set to %s", hostname_prefix);
+      return String(hostname_prefix);
+    }
+
+    const String hostname = String(hostname_prefix) + mac.substring(mac.length() - suffix_len);
+    WiFi.setHostname(hostname.c_str());
+    MESH_DEBUG_PRINTLN("WiFi hostname set to %s", hostname.c_str());
+    return hostname;
+    #endif
+  }
+#endif
+
 #ifdef DISPLAY_CLASS
   #include "UITask.h"
   static UITask ui_task(display);
@@ -91,6 +161,16 @@ void setup() {
 
   the_mesh.begin(fs);
 
+#if defined(RP2040_PLATFORM) && defined(WIFI_SSID)
+  const String wifi_hostname = setWifiHostname();
+  char public_key[65];
+  formatPublicKey(public_key, sizeof(public_key), the_mesh.self_id.pub_key);
+  Serial.printf("WiFi: connecting to SSID %s as %s\n", WIFI_SSID, wifi_hostname.c_str());
+  WiFi.begin(WIFI_SSID, WIFI_PWD);
+  logWifiStatus("begin", WiFi.status());
+  mesh::rp2040ota::begin(board, the_mesh.getNodeName(), wifi_hostname.c_str(), public_key, "Repeater");
+#endif
+
 #ifdef DISPLAY_CLASS
   ui_task.begin(the_mesh.getNodePrefs(), FIRMWARE_BUILD_DATE, FIRMWARE_VERSION);
 #endif
@@ -151,6 +231,22 @@ void loop() {
   ui_task.loop();
 #endif
   rtc_clock.tick();
+
+#if defined(RP2040_PLATFORM) && defined(WIFI_SSID)
+  uint8_t wifi_status = WiFi.status();
+  if (wifi_status != last_wifi_status) {
+    logWifiStatus("state-change", wifi_status);
+    last_wifi_status = wifi_status;
+  }
+
+  if (wifi_status == WL_DISCONNECTED && (millis() - last_wifi_reconnect_attempt > 10000)) {
+    Serial.println("WiFi: attempting reconnect");
+    WiFi.disconnect();
+    WiFi.begin(WIFI_SSID, WIFI_PWD);
+    logWifiStatus("reconnect", WiFi.status());
+    last_wifi_reconnect_attempt = millis();
+  }
+#endif
 
   if (the_mesh.getNodePrefs()->powersaving_enabled && !the_mesh.hasPendingWork()) {
 #if defined(NRF52_PLATFORM)

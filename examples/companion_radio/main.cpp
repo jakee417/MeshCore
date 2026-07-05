@@ -119,6 +119,16 @@ void halt() {
   uint8_t last_wifi_status = WL_IDLE_STATUS;
   unsigned long last_wifi_reconnect_attempt = 0;
 
+  static void formatPublicKey(char* dest, size_t dest_size, const uint8_t* public_key) {
+    if (dest_size < (PUB_KEY_SIZE * 2 + 1)) {
+      if (dest_size > 0) {
+        dest[0] = 0;
+      }
+      return;
+    }
+    mesh::Utils::toHex(dest, public_key, PUB_KEY_SIZE);
+  }
+
   static const char* getDefaultWifiHostnamePrefix() {
     #ifdef BOARD_NAME
     if (strcmp(BOARD_NAME, "rpipico2w") == 0) {
@@ -219,9 +229,11 @@ void setup() {
 
   #ifdef WIFI_SSID
   const String wifi_hostname = setWifiHostname();
+  char public_key[65];
+  formatPublicKey(public_key, sizeof(public_key), the_mesh.self_id.pub_key);
   WIFI_DEBUG_PRINTLN("Connecting to WiFi SSID %s", WIFI_SSID);
   WiFi.begin(WIFI_SSID, WIFI_PWD);
-  mesh::rp2040ota::begin(board, the_mesh.getNodePrefs()->node_name, wifi_hostname.c_str());
+  mesh::rp2040ota::begin(board, the_mesh.getNodePrefs()->node_name, wifi_hostname.c_str(), public_key, "Chat");
   serial_interface.begin(TCP_PORT);
   // #elif defined(BLE_PIN_CODE)
   //   char dev_name[32+16];

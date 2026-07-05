@@ -16,6 +16,8 @@ static MainBoard* s_board = nullptr;
 static char s_node_id[64] = {0};
 static char s_board_name[48] = {0};
 static char s_hostname[64] = {0};
+static char s_public_key[65] = {0};
+static char s_contact_type[24] = {0};
 static bool s_server_started = false;
 
 static void otaLog(const char* fmt, ...) {
@@ -60,11 +62,13 @@ static void appendEscapedHtml(String& dest, const char* src, size_t len) {
   }
 }
 
-static void refreshDeviceMetadata(MainBoard& board, const char* id, const char* hostname) {
+static void refreshDeviceMetadata(MainBoard& board, const char* id, const char* hostname, const char* public_key, const char* contact_type) {
   s_board = &board;
   snprintf(s_node_id, sizeof(s_node_id), "%s", id ? id : "Unknown");
   snprintf(s_board_name, sizeof(s_board_name), "%s", board.getManufacturerName());
   snprintf(s_hostname, sizeof(s_hostname), "%s", hostname && hostname[0] ? hostname : "Unknown");
+  snprintf(s_public_key, sizeof(s_public_key), "%s", public_key && public_key[0] ? public_key : "Unknown");
+  snprintf(s_contact_type, sizeof(s_contact_type), "%s", contact_type && contact_type[0] ? contact_type : "Unknown");
 }
 
 static bool ensureServerObjects() {
@@ -111,6 +115,10 @@ static void handleHomePage() {
   home_page_html += "<h2>MeshCore Home</h2>";
   home_page_html += "<p><b>Node:</b> ";
   home_page_html += s_node_id;
+  home_page_html += "<br><b>Public Key:</b> ";
+  home_page_html += s_public_key;
+  home_page_html += "<br><b>Type:</b> ";
+  home_page_html += s_contact_type;
   home_page_html += "<br><b>Hostname:</b> ";
   home_page_html += s_hostname;
   home_page_html += "<br><b>Board:</b> ";
@@ -161,6 +169,10 @@ static void handleStatus() {
   json += s_node_id;
   json += "\",\"hostname\":\"";
   json += s_hostname;
+  json += "\",\"public_key\":\"";
+  json += s_public_key;
+  json += "\",\"type\":\"";
+  json += s_contact_type;
   json += "\",\"board\":\"";
   json += s_board_name;
   json += "\",\"wifi_connected\":";
@@ -265,8 +277,8 @@ static void handlePacketLog() {
   f.close();
 }
 
-bool begin(MainBoard& board, const char* id, const char* hostname) {
-  refreshDeviceMetadata(board, id, hostname);
+bool begin(MainBoard& board, const char* id, const char* hostname, const char* public_key, const char* contact_type) {
+  refreshDeviceMetadata(board, id, hostname, public_key, contact_type);
 
   if (!ensureServerObjects()) {
     otaLog("ERROR failed to create server objects");
@@ -296,9 +308,9 @@ bool begin(MainBoard& board, const char* id, const char* hostname) {
 
 bool start(MainBoard& board, const char* id, char reply[]) {
   otaLog("start requested, node=%s board=%s", id ? id : "Unknown", board.getManufacturerName());
-  refreshDeviceMetadata(board, id, s_hostname[0] ? s_hostname : nullptr);
+  refreshDeviceMetadata(board, id, s_hostname[0] ? s_hostname : nullptr, s_public_key[0] ? s_public_key : nullptr, s_contact_type[0] ? s_contact_type : nullptr);
 
-  if (!begin(board, id, s_hostname)) {
+  if (!begin(board, id, s_hostname, s_public_key, s_contact_type)) {
     strcpy(reply, "Error: failed to start HTTP server");
     return false;
   }
@@ -326,10 +338,12 @@ bool isRunning() {
 
 namespace mesh::rp2040ota {
 
-bool begin(MainBoard& board, const char* id, const char* hostname) {
+bool begin(MainBoard& board, const char* id, const char* hostname, const char* public_key, const char* contact_type) {
   (void)board;
   (void)id;
   (void)hostname;
+  (void)public_key;
+  (void)contact_type;
   return false;
 }
 
